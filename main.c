@@ -13,7 +13,6 @@
 #include <errno.h>
 #include <pthread.h>
 #include <semaphore.h>
-#include <assert.h>
 
 //Function Prototypes
 int read_cli(int argc,char const *argv[]);
@@ -28,11 +27,15 @@ int main(int argc, char const *argv[])
 	portNum=read_cli(argc,argv);
 
 	//confirming that portnumber is valid
-	assert(portNum > 0);
+	if(portNum < 0){
+		fprintf(stderr, "Usage: file_name port_number(8000-9000)\n");
+		exit(1);
+	}
 	
 	//starting port connection
 	printf("Listening on Port %d\n", portNum);
 
+	printf("Exiting File Storage Server Simulation\n");
 	return 0;
 }
 
@@ -40,12 +43,10 @@ int main(int argc, char const *argv[])
 //if invalid, return -1
 int read_cli(int argc,char const *argv[]){
 	if(argc != 2){
-		fprintf(stderr, "ERROR: Invald Number of Command Line Arguments.\n");
 		return -1;
 	}
 	int temp = atoi(argv[1]);
-	if(temp < 0){
-		fprintf(stderr, "ERROR: Invalid Port Number Entered.\n");
+	if(temp < 8000 || temp > 9000){
 		return -1;
 	}
 	else{
