@@ -1,0 +1,20 @@
+HW #3 Notes
+
+C Program Implementing a File Storage Server
+-Multithreaded Server, using pthreads library
+-clients connect via TCP sockets
+-each incoming connection to a dedicated thread
+	*either create threads on demand or manage a pool of available threads
+-support clients in any language
+
+Clarifications
+-must be sychronized, at a minimum file-level sychronization
+	*any number of threads reading the same file (via READ command) at the same time
+	*first thread creates file (via ADD command), others give "ERROR: FILE EXISTS\n"
+	*when file is created (via ADD command), no other threads can access it
+	*during APPEND command, no other threads may be reading from file
+	*during APPEND command, no other threads can be appending to file
+	*A thread may execute the LIST command at any time (no sychronization)
+	*DELETE only when no other thread is accessing the file (all active reads and writes must complete first)
+	*Starvation must be avoided
+
