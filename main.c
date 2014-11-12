@@ -35,6 +35,12 @@ int main(int argc, char const *argv[])
 	//starting port connection
 	printf("Listening on Port %d\n", portNum);
 
+	//run server, checking to assure it successfuly runs
+	if(run(portNum) != 0){
+		exit(1);
+	}
+
+
 	printf("Exiting File Storage Server Simulation\n");
 	return 0;
 }
@@ -52,4 +58,20 @@ int read_cli(int argc,char const *argv[]){
 	else{
 		return temp;
 	}
+}
+
+int run(int portNum){
+	
+
+
+	return 0;
+}
+
+//checks command and calls if valid
+check_command(char * cmd){
+	ADD <filename> <bytes>\n<file-contents>
+	APPEND <filename> <bytes>\n<file-contents>
+	READ <filename>\n
+	LIST\n
+	DELETE <filename>\n
 }
