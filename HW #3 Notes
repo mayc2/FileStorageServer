@@ -2,10 +2,18 @@ HW #3 Notes
 
 C PROGRAM IMPLEMENTING A FILE STORAGE SERVER:
 	-Multithreaded Server, using pthreads library
-	-clients connect via TCP sockets
 	-each incoming connection to a dedicated thread
 		*either create threads on demand or manage a pool of available threads
+		*socket listens to 20 at a time
 	-support clients in any language
+
+
+struct sockaddr_in {
+	short int	     sin_family;  
+	unsigned short int   sin_port;	
+	struct in_addr	     sin_addr;	
+	unsigned char	     sin_zero[8];
+};
 
 APPLICATION-LEVEL PROTOCOL:
 	-text & binary files must be supported

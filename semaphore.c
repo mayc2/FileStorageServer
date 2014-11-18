@@ -13,9 +13,6 @@
 
 void * thread_code( void * in );
 
-/* declare semaphore globally such that all threads
-    can access the semaphore */
-sem_t mutex;
 int total;
 
 int main()
