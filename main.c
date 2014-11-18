@@ -26,12 +26,16 @@ sem_t readLock;
 sem_t deleteLock;
 sem_t lock;
 
+struct thread_input{
+    int fd;
+}; 
+
 //Function Prototypes
 int read_cli(int argc,char const *argv[]);
 int check_lstat(char *cmd);
 int check_dir(char *cmd);
 void initalize_threads(pthread_t *thread_id, int *inputs);
-void * start_routine( void * inputs );
+void * start_routine( struct thread_input * input );
 
 //Server Implementation
 int main(int argc, char const *argv[]){
@@ -103,17 +107,13 @@ int main(int argc, char const *argv[]){
 
   //Create Threads
   pthread_t thread_id[NUM_THREADS];
-  int inputs[NUM_THREADS];  /* the inputs to each thread */
+  struct thread_input inputs[NUM_THREADS];
+  
   int i;
   for( i=0; i<NUM_THREADS; ++i){
-    inputs[i]=i;
-    pthread_create( &thread_id[i], NULL, (void *)&start_routine, (void *)&inputs[i] );
+    inputs[i].fd=-1;
+    pthread_create( &thread_id[i], NULL, (void *)&start_routine, &inputs[i] );
   }
-
-  //input variables/file descriptors
-  int pid;
-  char buffer[ BUFFER_SIZE ];
-  // FILE *file;
 
   //server loop
   while(1){
@@ -122,62 +122,13 @@ int main(int argc, char const *argv[]){
     int clientSock = accept( sock, (struct sockaddr *)&client,(socklen_t*)&clientLength );
     printf("Received incoming connection from %s\n", inet_ntoa( (struct in_addr)client.sin_addr ));
 
-    //Client Handling: Child Processes
-    pid = fork();
-
-    //check for fork errors
-    if ( pid < 0 ){
-      perror( "fork() failed" );
-      exit( EXIT_FAILURE );
-    }
-
-    //Child process
-    //To-Do: implement commands + file server
-    else if ( pid == 0){
-      
-      //perform actions until messageLength is == 0
-      int messageLength;
-      do{
-        messageLength = recv( clientSock, buffer, BUFFER_SIZE, 0 );
-
-        //Check recv() Success        
-        if ( messageLength < 0 ){
-          perror( "recv() failed" );
-        }
-
-        //Socket Closing
-        else if ( messageLength == 0 ){
-          printf( "[thread %d] Client closed its socket....terminating\n",
-                  getpid() );
-        }
-
-        //To-Do: Perform command
-        else{
-          buffer[messageLength] = '\0';
-          printf( "[thread %d] Rcvd %s\n", getpid(),buffer);
-
-          //To-Do: implement commands
-
-          /* send ack message back to the client */
-          int sendLength;
-          //ssize_t send(int sockfd, const void *buf, size_t len, int flags);
-          sendLength = send( clientSock, "ACK\n", 4 , 0 );
-          fflush( NULL );
-          if ( sendLength != 4 ){
-            perror( "send() failed" );
-          }
-        }
-      }while( messageLength > 0 );
-
-      close( clientSock );
-      exit( EXIT_SUCCESS );
-
-      //To-Do: Handle Zombie Processes
-    }
-
-    //Parent Process
-    else{
-      close( clientSock );
+    for( i=0; i < NUM_THREADS; ++i){
+      if(inputs[i].fd == -1){
+        printf("enters inputs[%d] = %d\n",i,clientSock );
+        inputs[i].fd = clientSock;
+        printf("%d\n", inputs[i].fd);
+        break;
+      }
     }
 
   }
@@ -229,7 +180,78 @@ int check_dir(char *cmd){
   return 1; 
 }
 
-void * start_routine( void * inputs ){
+void * start_routine( struct thread_input * input ){
+  printf("enters thread \n");
+
+  while(1){
+    int threadID = input->fd;
+
+    //wait until thread is assigned to a client
+    if(threadID == -1){
+      continue;
+    }
+
+    char buffer[ BUFFER_SIZE ];
+    // FILE *file;
+
+    //perform actions until messageLength is == 0
+    int messageLength;
+    do{
+      messageLength = recv( threadID, buffer, BUFFER_SIZE, 0 );
+
+      //Check recv() Success        
+      if ( messageLength < 0 ){
+        perror( "recv() failed" );
+      }
+
+      //Socket Closing
+      else if ( messageLength == 0 ){
+        printf( "[thread %u] Client closed its socket....terminating\n", (unsigned int) pthread_self() );
+      }
+
+      //To-Do: Perform command
+      else{
+        buffer[messageLength] = '\0';
+        printf("buffer is %s\n", buffer);
+        printf( "[thread %u] Rcvd %s\n", (unsigned int) pthread_self(), buffer );
+
+        //To-Do: implement commands
+        char *cmd=(char *)malloc(sizeof(char)*1000);
+        char *file_name=(char *)malloc(sizeof(char)*1000);
+        int i, count=0, j;
+        for( i=0; i<sizeof(buffer); ++i){
+          if(buffer[i] == ' '){
+            ++count;
+            if(count==1)
+              cmd[i]='\0';
+            j=i+1;
+          }
+          if(count==0){
+            cmd[i]=buffer[i];
+          }
+          if(count==1){
+            file_name[j]=buffer[i];
+            if(i==sizeof(buffer)-1){
+              file_name[j+1]='\0';
+            }
+          }
+        }
+        printf("cmd=%s, file_name=%s\n",cmd,file_name );
+        /* send ack message back to the client */
+        int sendLength;
+        //ssize_t send(int sockfd, const void *buf, size_t len, int flags);
+        sendLength = send( threadID, "ACK\n", 4 , 0 );
+        fflush( NULL );
+        if ( sendLength != 4 ){
+          perror( "send() failed" );
+        }
+      }
+    }while( messageLength > 0 );
+
+    close( threadID );
+    input->fd = -1;
+
+  }
 
   pthread_exit( NULL );
   return (void *)NULL;
