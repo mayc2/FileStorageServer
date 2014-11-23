@@ -14,8 +14,9 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
-#define BUFFER_SIZE 1024
+#define BUFFER_SIZE 5000000
 #define NUM_THREADS 20
 #define STORAGE ".storage"
 
@@ -35,7 +36,12 @@ int read_cli(int argc,char const *argv[]);
 int check_lstat(char *cmd);
 int check_dir(char *cmd);
 void initalize_threads(pthread_t *thread_id, int *inputs);
-void * start_routine( struct thread_input * input );
+void * start_routine( struct thread_input *input );
+void exec_LIST(int *clientSockID);
+void exec_READ(int *clientSockID, char *file_name);
+void exec_DELETE(int *clientSockID, char *file_name);
+void exec_ADD(int *clientSockID, char *file_name, int *bytes);
+void exec_APPEND(int *clientSockID, char *file_name, int *bytes);
 
 //Server Implementation
 int main(int argc, char const *argv[]){
@@ -124,9 +130,7 @@ int main(int argc, char const *argv[]){
 
     for( i=0; i < NUM_THREADS; ++i){
       if(inputs[i].fd == -1){
-        printf("enters inputs[%d] = %d\n",i,clientSock );
         inputs[i].fd = clientSock;
-        printf("%d\n", inputs[i].fd);
         break;
       }
     }
@@ -159,7 +163,7 @@ int check_lstat(char *cmd){
   struct stat buf;
   int rc = lstat( cmd, &buf );
     if(rc == 0){
-      if ( S_ISREG( buf.st_mode ) && buf.st_mode & ( S_IXUSR | S_IXGRP | S_IXOTH )){
+      if ( S_ISREG( buf.st_mode ) ){
       return 0;
       }
     }
@@ -181,23 +185,35 @@ int check_dir(char *cmd){
 }
 
 void * start_routine( struct thread_input * input ){
-  printf("enters thread \n");
-
+  //variable initialzations
+  int clientSockID;
+  char *cmd=(char *)malloc(sizeof(char)*BUFFER_SIZE);
+  char *file_name=(char *)malloc(sizeof(char)*BUFFER_SIZE);
+  char *byte_string=(char *)malloc(sizeof(char)*BUFFER_SIZE);
+  char *file_contents=(char *)malloc(sizeof(char)*BUFFER_SIZE);
+  char * buffer=(char *)malloc(sizeof(char)*BUFFER_SIZE);
+  char * temp=(char *)malloc(sizeof(char)*BUFFER_SIZE);
+  int bytes;
+  
   while(1){
-    int threadID = input->fd;
+    clientSockID = input->fd;
 
     //wait until thread is assigned to a client
-    if(threadID == -1){
+    if(clientSockID == -1){
       continue;
     }
-
-    char buffer[ BUFFER_SIZE ];
-    // FILE *file;
 
     //perform actions until messageLength is == 0
     int messageLength;
     do{
-      messageLength = recv( threadID, buffer, BUFFER_SIZE, 0 );
+      //variable clen-up
+      bzero(cmd,sizeof(char)*BUFFER_SIZE);
+      bzero(file_name,sizeof(char)*BUFFER_SIZE);
+      bzero( byte_string , sizeof(char)*BUFFER_SIZE);
+      bzero( file_contents , sizeof(char)*BUFFER_SIZE);
+      bzero(buffer,sizeof(char)*BUFFER_SIZE);
+      bzero(temp,sizeof(char)*BUFFER_SIZE);
+      messageLength = recv( clientSockID, buffer, BUFFER_SIZE, 0 );
 
       //Check recv() Success        
       if ( messageLength < 0 ){
@@ -209,50 +225,316 @@ void * start_routine( struct thread_input * input ){
         printf( "[thread %u] Client closed its socket....terminating\n", (unsigned int) pthread_self() );
       }
 
-      //To-Do: Perform command
+      //Perform command
       else{
-        buffer[messageLength] = '\0';
-        printf("buffer is %s\n", buffer);
-        printf( "[thread %u] Rcvd %s\n", (unsigned int) pthread_self(), buffer );
 
-        //To-Do: implement commands
-        char *cmd=(char *)malloc(sizeof(char)*1000);
-        char *file_name=(char *)malloc(sizeof(char)*1000);
-        int i, count=0, j;
-        for( i=0; i<sizeof(buffer); ++i){
-          if(buffer[i] == ' '){
-            ++count;
-            if(count==1)
-              cmd[i]='\0';
-            j=i+1;
-          }
-          if(count==0){
-            cmd[i]=buffer[i];
-          }
-          if(count==1){
-            file_name[j]=buffer[i];
-            if(i==sizeof(buffer)-1){
-              file_name[j+1]='\0';
+        //parsing of client message (stored in buffer)
+        strcpy(temp,buffer);
+        cmd = strtok(temp, " \n");
+        if( strcmp(cmd,"LIST\0") == 0 ){
+          printf( "[thread %u] Rcvd %s\n", (unsigned int) pthread_self(), cmd);
+          exec_LIST( &clientSockID );
+        }
+        else if ( strcmp(cmd, "DELETE\0")  == 0 ){
+          file_name = strtok( NULL, "\n" );
+          printf( "[thread %u] Rcvd %s %s\n", (unsigned int) pthread_self(), cmd, file_name);
+          exec_DELETE( &clientSockID, file_name );
+        }
+        else if( strcmp(cmd, "READ\0")  == 0 ){
+          printf("TEMP IS %s\n", temp);
+          file_name = strtok( NULL, "\n" );
+          printf( "[thread %u] Rcvd %s %s\n", (unsigned int) pthread_self(), cmd, file_name);
+          exec_READ( &clientSockID, file_name );
+        }
+        else if( strcmp(cmd, "ADD\0")  == 0 || strcmp(cmd, "APPEND\0")  == 0 ){
+            file_name = strtok( NULL, " " );
+            byte_string = strtok( NULL, "\n" );
+            bytes = atoi( byte_string );
+            file_contents = byte_string + strlen(byte_string) + 1;
+            printf("file_name=%s--byte: %d--file_contents: %s\n",file_name,bytes,file_contents);
+            if( strcmp( cmd, "ADD\0" ) == 0){
+              printf( "[thread %u] Rcvd %s %s %d\n", (unsigned int) pthread_self(), cmd, file_name, bytes);
+              exec_ADD( &clientSockID, file_name, &bytes );
             }
-          }
+            else{
+              printf( "[thread %u] Rcvd %s %s %d\n", (unsigned int) pthread_self(), cmd, file_name, bytes);
+              exec_APPEND( &clientSockID, file_name, &bytes );
+            }
         }
-        printf("cmd=%s, file_name=%s\n",cmd,file_name );
-        /* send ack message back to the client */
-        int sendLength;
-        //ssize_t send(int sockfd, const void *buf, size_t len, int flags);
-        sendLength = send( threadID, "ACK\n", 4 , 0 );
-        fflush( NULL );
-        if ( sendLength != 4 ){
-          perror( "send() failed" );
+        else{
+          printf("invalid command: %s\n", cmd);
         }
+        
       }
+      
     }while( messageLength > 0 );
 
-    close( threadID );
+    close( clientSockID );
     input->fd = -1;
-
+    
   }
-
+  free( cmd );
+  free( file_name );
+  free( byte_string );
+  free( file_contents );
+  free( buffer );
+  free( temp );
   pthread_exit( NULL );
   return (void *)NULL;
+}
+
+void exec_LIST(int *clientSockID){
+  printf("enters exec_LIST\n");
+/*LIST\n
+  -- server returns the list of files currently stored on the server
+  -- the list need not be in any specific order
+  -- format of message containing list of files is as follows:
+
+        <number-of-files>\n<filename1>\n<filename2>\netc.\n
+
+  -- if no files are stored, "0\n" is returned
+
+   send ack message back to the client 
+  
+   int readdir_r(DIR *dirp, struct dirent *entry, struct dirent **result);
+*/
+  DIR *dirp;
+  struct dirent entry;
+  struct dirent *result = NULL;
+  int n, sendLength, count=0;
+  //getting file number (variable count)
+  if ((dirp = opendir (".storage")) != NULL) {
+    n=readdir_r(dirp, &entry, &result);
+    if( n == 0){
+      do{
+
+        if( entry.d_type & DT_REG ){
+          count += 1;
+        }
+        
+        //read next file file_name
+        n=readdir_r(dirp, &entry, &result);
+        if( n != 0){
+          perror( "readdir_r() error" );
+          break;
+        }
+
+        //handle no file case
+        if(count == 0 && result == NULL){
+          printf("enters here\n");
+          sendLength = send( *clientSockID, "0\n", 2, 0);
+          fflush(NULL);
+          if( sendLength != 2){
+            perror( "send() failed");
+          }
+          return;        
+        }
+
+        if( result == NULL ){
+          char num_files[15];
+          sprintf( num_files, "%d",count );
+          sendLength = send( *clientSockID, num_files, strlen(num_files), 0);
+          fflush(NULL);
+          if( sendLength != strlen(num_files) ){
+            perror( "send() failed");
+          }
+          sendLength = send( *clientSockID, "\n", 1, 0);
+          fflush(NULL);
+          if( sendLength != 1){
+            perror( "send() failed");
+          }
+        }
+
+      }while(result != NULL);
+    closedir (dirp);
+    }
+  }
+  else {
+    /* could not open directory */
+    perror ("opendir()  error");
+    return;
+  }
+
+  //actual file sending
+  if ((dirp = opendir (".storage")) != NULL) {
+    n=readdir_r(dirp, &entry, &result);
+    if( n == 0){
+      do{
+        if( entry.d_type & DT_REG ){
+          //send first message
+          sendLength = send( *clientSockID, entry.d_name , strlen(entry.d_name), 0);
+          fflush(NULL);
+          if( sendLength != strlen(entry.d_name)){
+              perror( "send() failed");
+          }
+          sendLength = send( *clientSockID, "\n" , 1, 0);
+          fflush(NULL);
+          if( sendLength != 1){
+              perror( "send() failed");
+          }
+        }
+        
+        //read next file file_name
+        n=readdir_r(dirp, &entry, &result);
+        if( n != 0){
+          perror( "readdir_r() error" );
+          break;
+        }
+
+      }while(result != NULL);
+    closedir (dirp);
+    }
+  }
+ 
+  else {
+    /* could not open directory */
+    perror ("opendir()  error");
+    return;
+  }
+
+}
+void exec_READ(int *clientSockID, char *file_name){
+  printf("enters exec_READ\n");
+/*READ <filename>\n
+-- server returns the length (in bytes) and content of <filename>
+-- note that this does NOT remove the file on the server
+-- if the file does not exist, return an "ERROR: NO SUCH FILE\n" error
+-- return "ACK" if successful
+-- return "ERROR: <error-description>\n" if unsuccessful
+-- if "ACK" is sent, follow it with file length and file contents, as follows:
+
+      ACK <bytes>\n<file-contents>
+*/
+  int sendLength;
+  char * file = ".storage/";
+  char* path;
+  path = malloc(strlen(file)+strlen(file_name)+1);
+  bzero(path,strlen(file)+strlen(file_name)+1);
+  strcpy(path, file);
+  strcat(path, file_name);
+  printf("path is %s\n", path);
+  printf("FILENAME IS %s\n", file_name);
+  struct stat buf;
+  int rc = lstat( file_name, &buf );
+  if(rc == 0 && S_ISREG( buf.st_mode ) ){
+    printf("file exists\n"); 
+    
+    sendLength = send( *clientSockID, "ACK " , 4, 0);
+    fflush(NULL);
+    if( sendLength != 4 ){
+        perror( "send() failed");
+    }
+    char num_files[15];
+    int s=(int)buf.st_size;
+    sprintf( num_files, "%d",s );
+    sendLength = send( *clientSockID, num_files , strlen(num_files) , 0);
+    fflush(NULL);
+    if( sendLength != strlen(num_files) ){
+        perror( "send() failed");
+    }   
+  }
+  else{
+    char * msg = "ERROR: NO SUCH FILE\n";
+    sendLength = send( *clientSockID, msg , strlen(msg), 0);
+    fflush(NULL);
+    if( sendLength != strlen(msg)){
+        perror( "send() failed");
+    }  
+  }
+}
+
+void exec_DELETE(int *clientSockID, char *file_name){
+  printf("enters exec_DELETE\n");
+/*DELETE <filename>\n
+-- delete file <filename> from the storage server
+-- if the file does not exist, return an "ERROR: NO SUCH FILE\n" error
+-- return "ACK" if successful
+-- return "ERROR: <error-description>\n" if unsuccessful
+*/
+
+  int sendLength;
+  char * file = ".storage/";
+  char* path;
+  path = malloc(strlen(file)+strlen(file_name)+1);
+  strcpy(path, file);
+  strcat(path, file_name);
+  if(check_lstat(path) == 0){
+    printf("file exists\n");
+  }
+  else{
+    char * msg = "ERROR: NO SUCH FILE\n";
+    sendLength = send( *clientSockID, msg , strlen(msg), 0);
+    fflush(NULL);
+    if( sendLength != strlen(msg)){
+        perror( "send() failed");
+    }  
+  }
+
+}
+void exec_ADD(int *clientSockID, char *file_name, int *bytes){
+  printf("enters exec_ADD\n");
+/*  ADD <filename> <bytes>\n<file-contents>
+-- add <filename> to the storage server
+-- if the file already exists, return an "ERROR: FILE EXISTS\n" error
+-- return "ACK" if successful
+-- return "ERROR: <error-description>\n" if unsuccessful
+*/
+
+/*  #define BUFFER_SIZE 1024
+  char buffer[BUFFER_SIZE];
+  while ( nbytes < expected_nbytes ){
+    n = read() up to BUFFER_SIZE bytes into buffer
+    nbytes += n;
+    process those bytes (write them to a file)
+  }
+  */
+
+  int sendLength;
+  char * file = ".storage/";
+  char* path;
+  path = malloc(strlen(file)+strlen(file_name)+1);
+  strcpy(path, file);
+  strcat(path, file_name);
+  if(check_lstat(path) == 0){
+    printf("file exists\n");
+  }
+  else{
+    char * msg = "ERROR: NO SUCH FILE\n";
+    sendLength = send( *clientSockID, msg , strlen(msg), 0);
+    fflush(NULL);
+    if( sendLength != strlen(msg)){
+        perror( "send() failed");
+    }  
+  }
+
+}
+
+void exec_APPEND(int *clientSockID, char *file_name, int *bytes){
+  printf("enters exec_APPEND\n");
+/*  APPEND <filename> <bytes>\n<file-contents>
+-- append <filename> to the storage server by
+    adding <file-contents> to the given file
+-- if the file does not exist, return an "ERROR: NO SUCH FILE\n" error
+-- return "ACK" if successful
+-- return "ERROR: <error-description>\n" if unsuccessful
+*/
+
+  int sendLength;
+  char * file = ".storage/";
+  char* path;
+  path = malloc(strlen(file)+strlen(file_name)+1);
+  strcpy(path, file);
+  strcat(path, file_name);
+  if(check_lstat(path) == 0){
+    printf("file exists\n");
+  }
+  else{
+    char * msg = "ERROR: NO SUCH FILE\n";
+    sendLength = send( *clientSockID, msg , strlen(msg), 0);
+    fflush(NULL);
+    if( sendLength != strlen(msg)){
+        perror( "send() failed");
+    }  
+  }
+
 }
