@@ -29,7 +29,8 @@ int read_cli(int argc,char const *argv[]){
 void block_server(int * sock){
     char buffer[ BUFFER_SIZE ];
     int n;
-    while( read( *sock, buffer, BUFFER_SIZE ) ){  // BLOCK
+    do{
+      n = read( *sock, buffer, BUFFER_SIZE );  // BLOCK
       if ( n < 0 )
       {
         perror( "read() failed" );
@@ -40,7 +41,7 @@ void block_server(int * sock){
         buffer[n] = '\0';
         printf( "%s", buffer );
       }
-    }
+    }while( n > 0);
     
 
 }
@@ -93,7 +94,7 @@ int main(int argc, char const *argv[])
   char * msg_ADD = "ADD abc.txt 27\nab cdefghijklmnopqrstuvwxyz\0";
   char * msg_ADD1 = "ADD test.txt 69\nabcdefghijklmnopqrstuvwxyzdksjahfklsdjhfasdjklhfsdklafhasklfhasjklf\0";
   char * msg_APPEND = "APPEND abc.txt\nHELLO WORLD\0";
-  char * msg_READ = "READ abc.txt\n\0";
+  char * msg_READ = "READ test.txt\n\0";
   char * msg_DELETE = "DELETE test.txt\n\0";
   char * msg_ADD_binary = "ADD banner.png 59930\n\0";
   int n;

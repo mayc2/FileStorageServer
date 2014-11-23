@@ -284,7 +284,6 @@ void * start_routine( struct thread_input * input ){
 }
 
 void exec_LIST(int *clientSockID){
-  printf("enters exec_LIST\n");
 /*LIST\n
   -- server returns the list of files currently stored on the server
   -- the list need not be in any specific order
@@ -394,7 +393,6 @@ void exec_LIST(int *clientSockID){
 
 }
 void exec_READ(int *clientSockID, char *file_name){
-  printf("enters exec_READ\n");
 /*READ <filename>\n
 -- server returns the length (in bytes) and content of <filename>
 -- note that this does NOT remove the file on the server
@@ -415,10 +413,14 @@ void exec_READ(int *clientSockID, char *file_name){
   printf("path is %s\n", path);
   printf("FILENAME IS %s\n", file_name);
   struct stat buf;
-  int rc = lstat( file_name, &buf );
+
+  //check if file exists
+  int rc = lstat( path, &buf );
+  
+  //if file exists, send info + contents
   if(rc == 0 && S_ISREG( buf.st_mode ) ){
-    printf("file exists\n"); 
     
+    //send ACK +  byte size
     sendLength = send( *clientSockID, "ACK " , 4, 0);
     fflush(NULL);
     if( sendLength != 4 ){
@@ -431,7 +433,28 @@ void exec_READ(int *clientSockID, char *file_name){
     fflush(NULL);
     if( sendLength != strlen(num_files) ){
         perror( "send() failed");
-    }   
+    }
+    sendLength = send( *clientSockID, "\n" , 1 , 0);
+    fflush(NULL);
+    if( sendLength != 1 ){
+        perror( "send() failed");
+    }
+
+    FILE *f_stream = fopen(path,"r");
+    char buffer[s+1];
+    int bytes_read = 0;
+    int cur_bytes;
+    while( bytes_read < s){
+      cur_bytes = fread( buffer, 1, s, f_stream);
+      bytes_read += cur_bytes;
+      sendLength = send( *clientSockID, buffer , cur_bytes, 0);
+      fflush(NULL);
+      if( sendLength != cur_bytes){
+          perror( "send() failed");
+      }
+    }
+    fclose(f_stream);
+
   }
   else{
     char * msg = "ERROR: NO SUCH FILE\n";
@@ -444,7 +467,6 @@ void exec_READ(int *clientSockID, char *file_name){
 }
 
 void exec_DELETE(int *clientSockID, char *file_name){
-  printf("enters exec_DELETE\n");
 /*DELETE <filename>\n
 -- delete file <filename> from the storage server
 -- if the file does not exist, return an "ERROR: NO SUCH FILE\n" error
@@ -456,10 +478,27 @@ void exec_DELETE(int *clientSockID, char *file_name){
   char * file = ".storage/";
   char* path;
   path = malloc(strlen(file)+strlen(file_name)+1);
+  bzero(path,strlen(file)+strlen(file_name)+1);
   strcpy(path, file);
   strcat(path, file_name);
-  if(check_lstat(path) == 0){
-    printf("file exists\n");
+  printf("path is %s\n", path);
+  printf("FILENAME IS %s\n", file_name);
+  struct stat buf;
+
+  //check if file exists
+  int rc = lstat( path, &buf );
+  
+  //if file exists, send info + contents
+  if(rc == 0 && S_ISREG( buf.st_mode ) ){
+    //removing file at path
+    if(remove(path) == 0){
+      //send ACK on success
+      sendLength = send( *clientSockID, "ACK" , 3, 0);
+      fflush(NULL);
+      if( sendLength != 3 ){
+          perror( "send() failed");
+      }
+    }
   }
   else{
     char * msg = "ERROR: NO SUCH FILE\n";
@@ -469,7 +508,6 @@ void exec_DELETE(int *clientSockID, char *file_name){
         perror( "send() failed");
     }  
   }
-
 }
 void exec_ADD(int *clientSockID, char *file_name, int *bytes){
   printf("enters exec_ADD\n");
@@ -480,31 +518,61 @@ void exec_ADD(int *clientSockID, char *file_name, int *bytes){
 -- return "ERROR: <error-description>\n" if unsuccessful
 */
 
-/*  #define BUFFER_SIZE 1024
-  char buffer[BUFFER_SIZE];
-  while ( nbytes < expected_nbytes ){
-    n = read() up to BUFFER_SIZE bytes into buffer
-    nbytes += n;
-    process those bytes (write them to a file)
-  }
-  */
-
   int sendLength;
   char * file = ".storage/";
   char* path;
   path = malloc(strlen(file)+strlen(file_name)+1);
+  bzero(path,strlen(file)+strlen(file_name)+1);
   strcpy(path, file);
   strcat(path, file_name);
-  if(check_lstat(path) == 0){
-    printf("file exists\n");
-  }
-  else{
-    char * msg = "ERROR: NO SUCH FILE\n";
+  printf("path is %s\n", path);
+  printf("FILENAME IS %s\n", file_name);
+  struct stat buf;
+
+  //check if file exists
+  int rc = lstat( path, &buf );
+  
+  //if file already exists
+  if(rc == 0){
+    char * msg = "ERROR: FILE EXISTS\n";
     sendLength = send( *clientSockID, msg , strlen(msg), 0);
     fflush(NULL);
     if( sendLength != strlen(msg)){
         perror( "send() failed");
     }  
+  }
+  //file needs to be created
+  else{
+
+    //creating file at path
+    FILE * f_stream = fopen(path,"w");
+    if(f_stream != NULL){
+      
+      char buffer[BUFFER_SIZE];
+      while ( nbytes < expected_nbytes ){
+        n = read() up to BUFFER_SIZE bytes into buffer
+        nbytes += n;
+        process those bytes (write them to a file)
+      }
+
+      //send ACK on success
+      sendLength = send( *clientSockID, "ACK" , 3, 0);
+      fflush(NULL);
+      if( sendLength != 3 ){
+          perror( "send() failed");
+      }
+    }
+    //file failed to be created
+    else{
+      char *temp = "ERROR: file creation failed\n";
+      sendLength = send( *clientSockID, temp , strlen(temp), 0);
+      fflush(NULL);
+      if( sendLength != strlen(temp) ){
+          perror( "send() failed");
+      } 
+      perror( "fopen() failed");
+    }
+
   }
 
 }
@@ -519,22 +587,5 @@ void exec_APPEND(int *clientSockID, char *file_name, int *bytes){
 -- return "ERROR: <error-description>\n" if unsuccessful
 */
 
-  int sendLength;
-  char * file = ".storage/";
-  char* path;
-  path = malloc(strlen(file)+strlen(file_name)+1);
-  strcpy(path, file);
-  strcat(path, file_name);
-  if(check_lstat(path) == 0){
-    printf("file exists\n");
-  }
-  else{
-    char * msg = "ERROR: NO SUCH FILE\n";
-    sendLength = send( *clientSockID, msg , strlen(msg), 0);
-    fflush(NULL);
-    if( sendLength != strlen(msg)){
-        perror( "send() failed");
-    }  
-  }
 
 }
