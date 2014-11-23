@@ -40,8 +40,8 @@ void * start_routine( struct thread_input *input );
 void exec_LIST(int *clientSockID);
 void exec_READ(int *clientSockID, char *file_name);
 void exec_DELETE(int *clientSockID, char *file_name);
-void exec_ADD(int *clientSockID, char *file_name, int *bytes);
-void exec_APPEND(int *clientSockID, char *file_name, int *bytes);
+void exec_ADD(int *clientSockID, char *file_name, int *bytes, char *file_contents);
+void exec_APPEND(int *clientSockID, char *file_name, int *bytes, char *file_contents);
 
 //Server Implementation
 int main(int argc, char const *argv[]){
@@ -241,7 +241,6 @@ void * start_routine( struct thread_input * input ){
           exec_DELETE( &clientSockID, file_name );
         }
         else if( strcmp(cmd, "READ\0")  == 0 ){
-          printf("TEMP IS %s\n", temp);
           file_name = strtok( NULL, "\n" );
           printf( "[thread %u] Rcvd %s %s\n", (unsigned int) pthread_self(), cmd, file_name);
           exec_READ( &clientSockID, file_name );
@@ -254,11 +253,11 @@ void * start_routine( struct thread_input * input ){
             printf("file_name=%s--byte: %d--file_contents: %s\n",file_name,bytes,file_contents);
             if( strcmp( cmd, "ADD\0" ) == 0){
               printf( "[thread %u] Rcvd %s %s %d\n", (unsigned int) pthread_self(), cmd, file_name, bytes);
-              exec_ADD( &clientSockID, file_name, &bytes );
+              exec_ADD( &clientSockID, file_name, &bytes, file_contents );
             }
             else{
               printf( "[thread %u] Rcvd %s %s %d\n", (unsigned int) pthread_self(), cmd, file_name, bytes);
-              exec_APPEND( &clientSockID, file_name, &bytes );
+              exec_APPEND( &clientSockID, file_name, &bytes, file_contents );
             }
         }
         else{
@@ -493,9 +492,9 @@ void exec_DELETE(int *clientSockID, char *file_name){
     //removing file at path
     if(remove(path) == 0){
       //send ACK on success
-      sendLength = send( *clientSockID, "ACK" , 3, 0);
+      sendLength = send( *clientSockID, "ACK\4" , 4, 0);
       fflush(NULL);
-      if( sendLength != 3 ){
+      if( sendLength != 4 ){
           perror( "send() failed");
       }
     }
@@ -509,7 +508,7 @@ void exec_DELETE(int *clientSockID, char *file_name){
     }  
   }
 }
-void exec_ADD(int *clientSockID, char *file_name, int *bytes){
+void exec_ADD(int *clientSockID, char *file_name, int *bytes, char *file_contents){
   printf("enters exec_ADD\n");
 /*  ADD <filename> <bytes>\n<file-contents>
 -- add <filename> to the storage server
@@ -548,17 +547,22 @@ void exec_ADD(int *clientSockID, char *file_name, int *bytes){
     FILE * f_stream = fopen(path,"w");
     if(f_stream != NULL){
       
-      char buffer[BUFFER_SIZE];
-      while ( nbytes < expected_nbytes ){
-        n = read() up to BUFFER_SIZE bytes into buffer
-        nbytes += n;
-        process those bytes (write them to a file)
+      int z;
+      z = fwrite(file_contents, 1, strlen(file_contents), f_stream);
+      if( z == 0){
+        char * msg = "ERROR: couldn't write to file (on server)\n";
+        sendLength = send( *clientSockID, msg , strlen(msg), 0);
+        fflush(NULL);
+        if( sendLength != strlen(msg)){
+          perror( "send() failed");
+        } 
+        perror( "fwrite() failed" );
       }
 
       //send ACK on success
-      sendLength = send( *clientSockID, "ACK" , 3, 0);
+      sendLength = send( *clientSockID, "ACK\n" , 4, 0);
       fflush(NULL);
-      if( sendLength != 3 ){
+      if( sendLength != 4 ){
           perror( "send() failed");
       }
     }
@@ -572,12 +576,12 @@ void exec_ADD(int *clientSockID, char *file_name, int *bytes){
       } 
       perror( "fopen() failed");
     }
-
+    fclose(f_stream);
   }
 
 }
 
-void exec_APPEND(int *clientSockID, char *file_name, int *bytes){
+void exec_APPEND(int *clientSockID, char *file_name, int *bytes, char *file_contents){
   printf("enters exec_APPEND\n");
 /*  APPEND <filename> <bytes>\n<file-contents>
 -- append <filename> to the storage server by
@@ -587,5 +591,66 @@ void exec_APPEND(int *clientSockID, char *file_name, int *bytes){
 -- return "ERROR: <error-description>\n" if unsuccessful
 */
 
+  int sendLength;
+  char * file = ".storage/";
+  char* path;
+  path = malloc(strlen(file)+strlen(file_name)+1);
+  bzero(path,strlen(file)+strlen(file_name)+1);
+  strcpy(path, file);
+  strcat(path, file_name);
+  printf("path is %s\n", path);
+  printf("FILENAME IS %s\n", file_name);
+  struct stat buf;
+
+  //check if file exists
+  int rc = lstat( path, &buf );
+  
+  //if file exists, append
+  if(rc == 0 ){
+    //creating file at path
+    FILE * f_stream = fopen(path,"a");
+    if(f_stream != NULL){
+      
+      int z;
+      z = fwrite(file_contents, 1, strlen(file_contents), f_stream);
+      if( z == 0){
+        char * msg = "ERROR: couldn't write to file (on server)\n";
+        sendLength = send( *clientSockID, msg , strlen(msg), 0);
+        fflush(NULL);
+        if( sendLength != strlen(msg)){
+          perror( "send() failed");
+        } 
+        perror( "fwrite() failed" );
+      }
+
+      //send ACK on success
+      sendLength = send( *clientSockID, "ACK\n" , 4, 0);
+      fflush(NULL);
+      if( sendLength != 4 ){
+          perror( "send() failed");
+      }
+    }
+    //file failed to be created
+    else{
+      char *temp = "ERROR: file creation failed\n";
+      sendLength = send( *clientSockID, temp , strlen(temp), 0);
+      fflush(NULL);
+      if( sendLength != strlen(temp) ){
+          perror( "send() failed");
+      } 
+      perror( "fopen() failed");
+    }
+    fclose(f_stream);
+      
+  }
+  //file doesnt exist!
+  else{
+    char * msg = "ERROR: NO SUCH FILE\n";
+    sendLength = send( *clientSockID, msg , strlen(msg), 0);
+    fflush(NULL);
+    if( sendLength != strlen(msg)){
+        perror( "send() failed");
+    }
+  }    
 
 }

@@ -91,23 +91,41 @@ int main(int argc, char const *argv[])
   }
 
   char * msg_LIST = "LIST\n\0";
-  char * msg_ADD = "ADD abc.txt 27\nab cdefghijklmnopqrstuvwxyz\0";
+  char * msg_ADD = "ADD maybe.txt 27\nadsab cdefghijklmnopqrstuvwxyz\0";
   char * msg_ADD1 = "ADD test.txt 69\nabcdefghijklmnopqrstuvwxyzdksjahfklsdjhfasdjklhfsdklafhasklfhasjklf\0";
-  char * msg_APPEND = "APPEND abc.txt\nHELLO WORLD\0";
+  char * msg_APPEND = "APPEND maybe.txt 20\nAPPENDED: HELLO WORLD\0";
   char * msg_READ = "READ test.txt\n\0";
   char * msg_DELETE = "DELETE test.txt\n\0";
-  char * msg_ADD_binary = "ADD banner.png 59930\n\0";
+  char * msg_ADD_binary = "ADD banner.png 59930\n";
   int n;
-/*
-  //adding binary file to server
-  lstat(banner1.png);
-  FILE *f_stream = fopen(banner.png,"r");
-  while(more data to be read/processed){
-    read(); <--from file
-    write(); --->to socket connection
+  struct stat buf;
+
+ /* //adding binary file to server
+  int rc = lstat("banner1.png", &buf);
+  if (rc == 0){
+    FILE *f_stream = fopen("banner1.png","r");
+    int total=59330;
+    char buffer[BUFFER_SIZE];
+    fread( buffer, 1, total, f_stream );
+    fclose(f_stream);
+    printf("Sending banner1.png\n");
+    int n = write( sock, msg_ADD_binary, strlen( msg_ADD_binary ) );
+    fflush( NULL );
+    if ( n < strlen( msg_ADD_binary ) )
+    {
+      perror( "write() failed" );
+      exit( EXIT_FAILURE );
+    }
+    n = write( sock, buffer, strlen( buffer ) );
+    fflush( NULL );
+    if ( n < strlen( buffer ) )
+    {
+      perror( "write() failed" );
+      exit( EXIT_FAILURE );
+    }
+    block_server(&sock);
   }
-  close();
-*/
+  */
 /*  
   //Check LIST Command
   printf("Sending %s\n", msg_LIST);
@@ -120,8 +138,8 @@ int main(int argc, char const *argv[])
   }
   block_server(&sock);
 */
-/*
-  //Check ADD Command
+
+ /* //Check ADD Command
   printf("Sending %s\n", msg_ADD);
   n = write( sock, msg_ADD, strlen( msg_ADD ) );
   fflush( NULL );
@@ -166,7 +184,7 @@ int main(int argc, char const *argv[])
   }
   block_server(&sock);
 */
-/*
+
   //check APPEND Command
   printf("Sending %s\n", msg_APPEND);
   n = write( sock, msg_APPEND, strlen( msg_APPEND ) );
@@ -177,8 +195,8 @@ int main(int argc, char const *argv[])
     exit( EXIT_FAILURE );
   }
   block_server(&sock);
-*/
 
+/*
   //Check READ Command 
   printf("Sending %s\n", msg_READ);
   n = write( sock, msg_READ, strlen( msg_READ ) );
@@ -189,7 +207,7 @@ int main(int argc, char const *argv[])
     exit( EXIT_FAILURE );
   }
   block_server(&sock);
-
+*/
 /*
   //Check DELETE Command
   printf("Sending %s\n", msg_DELETE);
