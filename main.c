@@ -1,4 +1,9 @@
-/* main.c */
+/* 
+  main.c 
+  Server File
+  Author: Chris May
+*/
+
 
 #include <sys/types.h>
 #include <string.h>

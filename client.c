@@ -103,31 +103,47 @@ int main(int argc, char const *argv[])
   struct stat buf;
 
   //adding binary file to server
-  int rc = lstat("banner1.png", &buf);
-  if (rc == 0){
-    FILE *f_stream = fopen("banner1.png","r");
-    int total=59330;
-    char buffer[BUFFER_SIZE];
-    fread( buffer, 1, total, f_stream );
-    fclose(f_stream);
-    printf("Sending banner1.png\n");
-    int n = write( sock, msg_ADD_binary, strlen( msg_ADD_binary ) );
-    fflush( NULL );
-    if ( n < strlen( msg_ADD_binary ) )
-    {
-      perror( "write() failed" );
-      exit( EXIT_FAILURE );
-    }
-    n = write( sock, buffer, total );
-    fflush( NULL );
-    if ( n < strlen( buffer ) )
-    {
-      perror( "write() failed" );
-      exit( EXIT_FAILURE );
-    }
-    block_server(&sock);
+  char sdbuf[BUFFER_SIZE];
+  bzero(sdbuf, BUFFER_SIZE); 
+  int fs_block_sz; 
+  FILE * fs = fopen("banner1.png","r");
+  while((fs_block_sz = fread(sdbuf, sizeof(char), BUFFER_SIZE, fs)) > 0)
+  {
+      if(send(sock, sdbuf, fs_block_sz, 0) < 0)
+      {
+          break;
+      }
+      bzero(sdbuf, BUFFER_SIZE);
   }
-  
+
+  char revbuf[BUFFER_SIZE];
+  char* fr_name = "banner2.png";
+  FILE *fr = fopen(fr_name, "w");
+  if(fr == NULL)
+    printf("File %s Cannot be opened.\n", fr_name);
+  else
+  {
+    bzero(revbuf, BUFFER_SIZE); 
+    int fr_block_sz = 0;
+    while((fr_block_sz = recv(sock, revbuf, BUFFER_SIZE, 0)) > 0)
+    {
+      int write_sz = fwrite(revbuf, sizeof(char), fr_block_sz, fr);
+      if(write_sz < fr_block_sz)
+      {
+        error("File write failed.\n");
+      }
+      bzero(revbuf, BUFFER_SIZE);
+      if (fr_block_sz == 0 || fr_block_sz != 512) 
+      {
+        break;
+      }
+    }
+    if(fr_block_sz < 0)
+      printf("recv() timed out.\n");
+  }
+  printf("Ok received from server!\n");
+  fclose(fr);
+
 /*  
   //Check LIST Command
   printf("Sending %s\n", msg_LIST);
@@ -186,7 +202,7 @@ int main(int argc, char const *argv[])
   }
   block_server(&sock);
 */
-
+/*
   //check APPEND Command
   printf("Sending %s\n", msg_APPEND);
   n = write( sock, msg_APPEND, strlen( msg_APPEND ) );
@@ -197,7 +213,7 @@ int main(int argc, char const *argv[])
     exit( EXIT_FAILURE );
   }
   block_server(&sock);
-
+*/
 /*
   //Check READ Command 
   printf("Sending %s\n", msg_READ);
