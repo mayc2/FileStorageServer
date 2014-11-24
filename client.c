@@ -27,10 +27,11 @@ int read_cli(int argc,char const *argv[]){
 }
 
 void block_server(int * sock){
-    char buffer[ BUFFER_SIZE ];
+    char buff[ BUFFER_SIZE ];
     int n;
     do{
-      n = read( *sock, buffer, BUFFER_SIZE );  // BLOCK
+      n = read( *sock, buff, BUFFER_SIZE );  // BLOCK
+    printf("gets past first send\n");
       if ( n < 0 )
       {
         perror( "read() failed" );
@@ -38,9 +39,10 @@ void block_server(int * sock){
       }
       else
       {
-        buffer[n] = '\0';
-        printf( "%s", buffer );
+        buff[n] = '\0';
+        printf( "%s", buff );
       }
+
     }while( n > 0);
     
 
@@ -91,16 +93,16 @@ int main(int argc, char const *argv[])
   }
 
   char * msg_LIST = "LIST\n\0";
-  char * msg_ADD = "ADD maybe.txt 27\nadsab cdefghijklmnopqrstuvwxyz\0";
+  char * msg_ADD = "ADD maybe3.txt 27\nadsab cdefghijklmnopqrstuvwxyz";
   char * msg_ADD1 = "ADD test.txt 69\nabcdefghijklmnopqrstuvwxyzdksjahfklsdjhfasdjklhfsdklafhasklfhasjklf\0";
-  char * msg_APPEND = "APPEND maybe.txt 20\nAPPENDED: HELLO WORLD\0";
+  char * msg_APPEND = "APPEND maybe.txt 20\nAPPENDED: HELLO WORLD";
   char * msg_READ = "READ test.txt\n\0";
   char * msg_DELETE = "DELETE test.txt\n\0";
-  char * msg_ADD_binary = "ADD banner.png 59930\n";
+  char * msg_ADD_binary = "ADD banner1.png 59930\n";
   int n;
   struct stat buf;
 
- /* //adding binary file to server
+  //adding binary file to server
   int rc = lstat("banner1.png", &buf);
   if (rc == 0){
     FILE *f_stream = fopen("banner1.png","r");
@@ -116,7 +118,7 @@ int main(int argc, char const *argv[])
       perror( "write() failed" );
       exit( EXIT_FAILURE );
     }
-    n = write( sock, buffer, strlen( buffer ) );
+    n = write( sock, buffer, total );
     fflush( NULL );
     if ( n < strlen( buffer ) )
     {
@@ -125,7 +127,7 @@ int main(int argc, char const *argv[])
     }
     block_server(&sock);
   }
-  */
+  
 /*  
   //Check LIST Command
   printf("Sending %s\n", msg_LIST);

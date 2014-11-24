@@ -19,13 +19,16 @@
 #define BUFFER_SIZE 5000000
 #define NUM_THREADS 20
 #define STORAGE ".storage"
-
-//Global Semaphores
-sem_t addLock;
-sem_t appendLock;
-sem_t readLock;
-sem_t deleteLock;
-sem_t lock;
+#define FILE_CAPACITY 1000
+//Global variables
+sem_t tLock;
+int fileCount;
+struct thread_lock{
+  char filename[sizeof(char)*100];
+  char used;
+  sem_t readLock;
+  sem_t editLock;
+} locks[FILE_CAPACITY];
 
 struct thread_input{
     int fd;
@@ -42,10 +45,13 @@ void exec_READ(int *clientSockID, char *file_name);
 void exec_DELETE(int *clientSockID, char *file_name);
 void exec_ADD(int *clientSockID, char *file_name, int *bytes, char *file_contents);
 void exec_APPEND(int *clientSockID, char *file_name, int *bytes, char *file_contents);
+void lock_init(void);
+void fill_locks(void);
 
 //Server Implementation
 int main(int argc, char const *argv[]){
   unsigned short port;
+  int i;
 	printf("Started file-server\n");
 	
 	//get Port Number from command line
@@ -57,6 +63,13 @@ int main(int argc, char const *argv[]){
 		exit( EXIT_FAILURE);
 	}
   port = (unsigned short) tport;
+
+  //initializing thread lock
+  sem_init( &tLock, 0, 1 );
+  fileCount=0;
+  sem_wait( &tLock );
+  lock_init();
+  sem_post( &tLock );
 
   //Creating Listener Socket (TCP)
   int sock = socket( AF_INET, SOCK_STREAM, 0 );
@@ -102,33 +115,39 @@ int main(int argc, char const *argv[]){
   }
   else{
     printf("Directory '.storage' already exists.\n");
+    fill_locks();
   }
-
-  //Initialize Semaphores
-  sem_init( &addLock, 0, 1 );
-  sem_init( &appendLock, 0, 1 );
-  sem_init( &readLock, 0, NUM_THREADS );
-  sem_init( &deleteLock, 0, 1 );
-  sem_init( &lock, 0 ,1 );
 
   //Create Threads
   pthread_t thread_id[NUM_THREADS];
   struct thread_input inputs[NUM_THREADS];
   
-  int i;
   for( i=0; i<NUM_THREADS; ++i){
     inputs[i].fd=-1;
     pthread_create( &thread_id[i], NULL, (void *)&start_routine, &inputs[i] );
   }
 
   //server loop
+  i=0;
   while(1){
 
     //Accepted Client Connection
     int clientSock = accept( sock, (struct sockaddr *)&client,(socklen_t*)&clientLength );
     printf("Received incoming connection from %s\n", inet_ntoa( (struct in_addr)client.sin_addr ));
 
-    for( i=0; i < NUM_THREADS; ++i){
+    //reset i to 0 if NUM_THREADS reached
+    //avoids starvation of threads
+    if(i == NUM_THREADS-1){
+      i=0;
+    }
+    //select +  assign client to a thread
+    for( ; i < NUM_THREADS; ++i){
+      
+      //reset i to 0 if NUM_THREADS reached
+      //avoids starvation of threads
+      if(i == NUM_THREADS-1){
+        i=0;
+      }
       if(inputs[i].fd == -1){
         inputs[i].fd = clientSock;
         break;
@@ -137,6 +156,8 @@ int main(int argc, char const *argv[]){
 
   }
 
+  //Destroy Semaphores
+  sem_destroy( &tLock );
 	printf("Exiting File Storage Server Simulation\n");
   close( sock );
 
@@ -157,6 +178,40 @@ int read_cli(int argc,char const *argv[]){
 		return temp;
 	}
 }
+
+void lock_init( void ){
+  int i;
+  for( i=0; i < FILE_CAPACITY; ++i){
+    strcpy(locks[i].filename,"\0");
+    locks[i].used = '0';
+    sem_init( &locks[i].readLock, 0, NUM_THREADS );
+    sem_init( &locks[i].editLock, 0, 1 );
+  }
+}
+
+void fill_locks(void){
+  DIR *dirp;
+  struct dirent entry;
+  struct dirent *result = NULL;
+  int n;
+  if ((dirp = opendir (".storage")) != NULL) {
+    do{
+      n=readdir_r(dirp, &entry, &result);
+      if( n != 0){
+        perror( "readdir_r() error" );
+        return;
+      }
+      if( entry.d_type & DT_REG ){
+        sem_wait( &tLock );
+        strcpy(locks[fileCount].filename,entry.d_name);
+        locks[fileCount].used = '1';
+        sem_post( &tLock );
+        ++fileCount;
+      }
+    }while( result != NULL);
+  }
+}
+
 
 //return 0 if text, and return 1 if it is binary
 int check_lstat(char *cmd){
@@ -218,6 +273,7 @@ void * start_routine( struct thread_input * input ){
       //Check recv() Success        
       if ( messageLength < 0 ){
         perror( "recv() failed" );
+        return NULL;
       }
 
       //Socket Closing
@@ -232,17 +288,17 @@ void * start_routine( struct thread_input * input ){
         strcpy(temp,buffer);
         cmd = strtok(temp, " \n");
         if( strcmp(cmd,"LIST\0") == 0 ){
-          printf( "[thread %u] Rcvd %s\n", (unsigned int) pthread_self(), cmd);
+          printf( "[thread %u] Rcvd: %s\n", (unsigned int) pthread_self(), cmd);
           exec_LIST( &clientSockID );
         }
         else if ( strcmp(cmd, "DELETE\0")  == 0 ){
           file_name = strtok( NULL, "\n" );
-          printf( "[thread %u] Rcvd %s %s\n", (unsigned int) pthread_self(), cmd, file_name);
+          printf( "[thread %u] Rcvd: %s %s\n", (unsigned int) pthread_self(), cmd, file_name);
           exec_DELETE( &clientSockID, file_name );
         }
         else if( strcmp(cmd, "READ\0")  == 0 ){
           file_name = strtok( NULL, "\n" );
-          printf( "[thread %u] Rcvd %s %s\n", (unsigned int) pthread_self(), cmd, file_name);
+          printf( "[thread %u] Rcvd: %s %s\n", (unsigned int) pthread_self(), cmd, file_name);
           exec_READ( &clientSockID, file_name );
         }
         else if( strcmp(cmd, "ADD\0")  == 0 || strcmp(cmd, "APPEND\0")  == 0 ){
@@ -250,18 +306,26 @@ void * start_routine( struct thread_input * input ){
             byte_string = strtok( NULL, "\n" );
             bytes = atoi( byte_string );
             file_contents = byte_string + strlen(byte_string) + 1;
-            printf("file_name=%s--byte: %d--file_contents: %s\n",file_name,bytes,file_contents);
             if( strcmp( cmd, "ADD\0" ) == 0){
-              printf( "[thread %u] Rcvd %s %s %d\n", (unsigned int) pthread_self(), cmd, file_name, bytes);
+              printf( "[thread %u] Rcvd: %s %s %d\n", (unsigned int) pthread_self(), cmd, file_name, bytes);
               exec_ADD( &clientSockID, file_name, &bytes, file_contents );
             }
             else{
-              printf( "[thread %u] Rcvd %s %s %d\n", (unsigned int) pthread_self(), cmd, file_name, bytes);
+              printf( "[thread %u] Rcvd: %s %s %d\n", (unsigned int) pthread_self(), cmd, file_name, bytes);
               exec_APPEND( &clientSockID, file_name, &bytes, file_contents );
             }
         }
         else{
-          printf("invalid command: %s\n", cmd);
+          printf( "[thread %u] Rcvd: %s\n", (unsigned int) pthread_self(), cmd);
+          printf("[thread %u] SENT: ERROR: INVALID COMMAND\n", (unsigned int) pthread_self());
+          int sendLength;
+          char * msg = "ERROR: INVALID COMMAND\n";
+          sendLength = send( clientSockID, msg , strlen(msg), 0);
+          fflush(NULL);
+          if( sendLength != strlen(msg)){
+              perror( "send() failed");
+              return NULL;
+          }
         }
         
       }
@@ -314,16 +378,16 @@ void exec_LIST(int *clientSockID){
         n=readdir_r(dirp, &entry, &result);
         if( n != 0){
           perror( "readdir_r() error" );
-          break;
+          return;
         }
 
         //handle no file case
         if(count == 0 && result == NULL){
-          printf("enters here\n");
           sendLength = send( *clientSockID, "0\n", 2, 0);
           fflush(NULL);
           if( sendLength != 2){
             perror( "send() failed");
+            return;
           }
           return;        
         }
@@ -335,12 +399,15 @@ void exec_LIST(int *clientSockID){
           fflush(NULL);
           if( sendLength != strlen(num_files) ){
             perror( "send() failed");
+            return;
           }
           sendLength = send( *clientSockID, "\n", 1, 0);
           fflush(NULL);
           if( sendLength != 1){
             perror( "send() failed");
+            return;
           }
+          printf("[thread %u] SENT: %d\n", (unsigned int) pthread_self(), count);
         }
 
       }while(result != NULL);
@@ -364,19 +431,22 @@ void exec_LIST(int *clientSockID){
           fflush(NULL);
           if( sendLength != strlen(entry.d_name)){
               perror( "send() failed");
+              return;
           }
           sendLength = send( *clientSockID, "\n" , 1, 0);
           fflush(NULL);
           if( sendLength != 1){
               perror( "send() failed");
+              return;
           }
+          printf("[thread %u] SENT: %s\n", (unsigned int) pthread_self(),entry.d_name);
         }
         
         //read next file file_name
         n=readdir_r(dirp, &entry, &result);
         if( n != 0){
           perror( "readdir_r() error" );
-          break;
+          return;
         }
 
       }while(result != NULL);
@@ -409,8 +479,6 @@ void exec_READ(int *clientSockID, char *file_name){
   bzero(path,strlen(file)+strlen(file_name)+1);
   strcpy(path, file);
   strcat(path, file_name);
-  printf("path is %s\n", path);
-  printf("FILENAME IS %s\n", file_name);
   struct stat buf;
 
   //check if file exists
@@ -424,6 +492,7 @@ void exec_READ(int *clientSockID, char *file_name){
     fflush(NULL);
     if( sendLength != 4 ){
         perror( "send() failed");
+        return;
     }
     char num_files[15];
     int s=(int)buf.st_size;
@@ -432,13 +501,25 @@ void exec_READ(int *clientSockID, char *file_name){
     fflush(NULL);
     if( sendLength != strlen(num_files) ){
         perror( "send() failed");
+        return;
     }
     sendLength = send( *clientSockID, "\n" , 1 , 0);
     fflush(NULL);
     if( sendLength != 1 ){
         perror( "send() failed");
+        return;
     }
+    printf("[thread %u] SENT: ACK %s\n", (unsigned int) pthread_self(),num_files);
 
+    int index;
+    for( index=0; index < fileCount; ++index){
+      if(locks[index].used == '1'){
+        if( strcmp(locks[index].filename,file_name) == 0 ){
+          sem_wait( &locks[index].readLock );
+          break;
+        }
+      }
+    }
     FILE *f_stream = fopen(path,"r");
     char buffer[s+1];
     int bytes_read = 0;
@@ -450,10 +531,18 @@ void exec_READ(int *clientSockID, char *file_name){
       fflush(NULL);
       if( sendLength != cur_bytes){
           perror( "send() failed");
+          return;
+      }
+      sendLength = send( *clientSockID, "\n" , 1, 0);
+      fflush(NULL);
+      if( sendLength != 1 ){
+          perror( "send() failed");
+          return;
       }
     }
     fclose(f_stream);
-
+    printf("[thread %u] SENT: Transferred file (%d bytes)\n", (unsigned int) pthread_self(),s);
+    sem_post( &locks[index].readLock );
   }
   else{
     char * msg = "ERROR: NO SUCH FILE\n";
@@ -461,7 +550,9 @@ void exec_READ(int *clientSockID, char *file_name){
     fflush(NULL);
     if( sendLength != strlen(msg)){
         perror( "send() failed");
-    }  
+        return;
+    }
+    printf("[thread %u] SENT: %s", (unsigned int) pthread_self(),msg);  
   }
 }
 
@@ -480,8 +571,6 @@ void exec_DELETE(int *clientSockID, char *file_name){
   bzero(path,strlen(file)+strlen(file_name)+1);
   strcpy(path, file);
   strcat(path, file_name);
-  printf("path is %s\n", path);
-  printf("FILENAME IS %s\n", file_name);
   struct stat buf;
 
   //check if file exists
@@ -489,15 +578,42 @@ void exec_DELETE(int *clientSockID, char *file_name){
   
   //if file exists, send info + contents
   if(rc == 0 && S_ISREG( buf.st_mode ) ){
+
+    //gaining rights to DELETE
+    int index,sval;
+    for( index=0; index < fileCount; ++index){
+      if(locks[index].used == '1'){
+        if( strcmp(locks[index].filename,file_name) == 0 ){
+          sem_wait( &locks[index].editLock );
+          break;
+        }
+      }
+    }
+
+    do{
+      sem_getvalue( &locks[index].readLock, &sval);
+    }while( sval != NUM_THREADS );
+    sem_wait( &tLock );
+
     //removing file at path
     if(remove(path) == 0){
+      printf("[thread %u] Delete \"%s\" file\n", (unsigned int) pthread_self(),file_name);
+      locks[index].used='0';
+      strcpy(locks[index].filename,"\0");
+      --fileCount;
+
       //send ACK on success
-      sendLength = send( *clientSockID, "ACK\4" , 4, 0);
+      sendLength = send( *clientSockID, "ACK\n" , 4, 0);
       fflush(NULL);
       if( sendLength != 4 ){
           perror( "send() failed");
+          return;
       }
+      printf("[thread %u] SENT: ACK\n", (unsigned int) pthread_self());
     }
+
+    sem_post( &locks[index].editLock );
+    sem_post( &tLock );
   }
   else{
     char * msg = "ERROR: NO SUCH FILE\n";
@@ -505,11 +621,12 @@ void exec_DELETE(int *clientSockID, char *file_name){
     fflush(NULL);
     if( sendLength != strlen(msg)){
         perror( "send() failed");
+        return;
     }  
+    printf("[thread %u] SENT: %s", (unsigned int) pthread_self(),msg);  
   }
 }
 void exec_ADD(int *clientSockID, char *file_name, int *bytes, char *file_contents){
-  printf("enters exec_ADD\n");
 /*  ADD <filename> <bytes>\n<file-contents>
 -- add <filename> to the storage server
 -- if the file already exists, return an "ERROR: FILE EXISTS\n" error
@@ -524,8 +641,6 @@ void exec_ADD(int *clientSockID, char *file_name, int *bytes, char *file_content
   bzero(path,strlen(file)+strlen(file_name)+1);
   strcpy(path, file);
   strcat(path, file_name);
-  printf("path is %s\n", path);
-  printf("FILENAME IS %s\n", file_name);
   struct stat buf;
 
   //check if file exists
@@ -538,10 +653,40 @@ void exec_ADD(int *clientSockID, char *file_name, int *bytes, char *file_content
     fflush(NULL);
     if( sendLength != strlen(msg)){
         perror( "send() failed");
+        return;
     }  
+    printf("[thread %u] SENT: %s", (unsigned int) pthread_self(),msg);
   }
   //file needs to be created
   else{
+
+    int index;
+    //initialize file locks & increment fileCount
+    if(fileCount < FILE_CAPACITY){
+      ++fileCount;
+
+      for( index=0; index < fileCount; ++index){
+        if(locks[index].used == '0'){
+          sem_wait( &tLock );
+          locks[index].used='1';
+          strcpy(locks[index].filename,file_name);
+          sem_post( &tLock );
+          break;
+        }
+      }    
+    }
+    else{
+      char * errorMessage = "ERROR: file storage capacity reached\n";
+      sendLength = send( *clientSockID, errorMessage , strlen(errorMessage), 0);
+      fflush(NULL);
+      if( sendLength != strlen(errorMessage)){
+        perror( "send() failed");
+        return;
+      } 
+      printf("[thread %u] SENT: %s", (unsigned int) pthread_self(),errorMessage);  
+    }
+
+    sem_wait( &locks[index].editLock );
 
     //creating file at path
     FILE * f_stream = fopen(path,"w");
@@ -555,16 +700,22 @@ void exec_ADD(int *clientSockID, char *file_name, int *bytes, char *file_content
         fflush(NULL);
         if( sendLength != strlen(msg)){
           perror( "send() failed");
-        } 
+          return;
+        }
+        printf("[thread %u] SENT: %s", (unsigned int) pthread_self(),msg); 
         perror( "fwrite() failed" );
+        return;
       }
+      printf("[thread %u] Transferred file (%d bytes)\n", (unsigned int) pthread_self(),strlen(file_contents));
 
       //send ACK on success
       sendLength = send( *clientSockID, "ACK\n" , 4, 0);
       fflush(NULL);
       if( sendLength != 4 ){
           perror( "send() failed");
+          return;
       }
+      printf("[thread %u] SENT: ACK\n", (unsigned int) pthread_self());
     }
     //file failed to be created
     else{
@@ -573,16 +724,20 @@ void exec_ADD(int *clientSockID, char *file_name, int *bytes, char *file_content
       fflush(NULL);
       if( sendLength != strlen(temp) ){
           perror( "send() failed");
+          return;
       } 
       perror( "fopen() failed");
+      printf("[thread %u] SENT: %s", (unsigned int) pthread_self(),temp);
+      return;
     }
     fclose(f_stream);
+
+    sem_post( &locks[index].editLock );
   }
 
 }
 
 void exec_APPEND(int *clientSockID, char *file_name, int *bytes, char *file_contents){
-  printf("enters exec_APPEND\n");
 /*  APPEND <filename> <bytes>\n<file-contents>
 -- append <filename> to the storage server by
     adding <file-contents> to the given file
@@ -598,15 +753,28 @@ void exec_APPEND(int *clientSockID, char *file_name, int *bytes, char *file_cont
   bzero(path,strlen(file)+strlen(file_name)+1);
   strcpy(path, file);
   strcat(path, file_name);
-  printf("path is %s\n", path);
-  printf("FILENAME IS %s\n", file_name);
   struct stat buf;
 
   //check if file exists
   int rc = lstat( path, &buf );
-  
+
   //if file exists, append
   if(rc == 0 ){
+    int index,sval;
+    for( index=0; index < fileCount; ++index){
+      if(locks[index].used == '1'){
+        if( strcmp(locks[index].filename,file_name) == 0 ){
+          sem_wait( &tLock );
+          break;
+        }
+      }
+    }
+
+    do{
+      sem_getvalue( &locks[index].readLock, &sval);
+    }while( sval != NUM_THREADS );
+    
+    sem_wait( &locks[index].editLock );
     //creating file at path
     FILE * f_stream = fopen(path,"a");
     if(f_stream != NULL){
@@ -619,16 +787,21 @@ void exec_APPEND(int *clientSockID, char *file_name, int *bytes, char *file_cont
         fflush(NULL);
         if( sendLength != strlen(msg)){
           perror( "send() failed");
-        } 
+          return;
+        }
+        printf("[thread %u] SENT: %s", (unsigned int) pthread_self(),msg); 
         perror( "fwrite() failed" );
+        return;
       }
-
+      printf("[thread %u] Appended to file \"%s\" (%d bytes)\n", (unsigned int) pthread_self(), file_name, *bytes);
       //send ACK on success
       sendLength = send( *clientSockID, "ACK\n" , 4, 0);
       fflush(NULL);
       if( sendLength != 4 ){
           perror( "send() failed");
+          return;
       }
+      printf("[thread %u] SENT: ACK\n", (unsigned int) pthread_self());
     }
     //file failed to be created
     else{
@@ -637,11 +810,15 @@ void exec_APPEND(int *clientSockID, char *file_name, int *bytes, char *file_cont
       fflush(NULL);
       if( sendLength != strlen(temp) ){
           perror( "send() failed");
+          return;
       } 
+      printf("[thread %u] SENT: %s", (unsigned int) pthread_self(),temp);
       perror( "fopen() failed");
+      return;
     }
     fclose(f_stream);
-      
+    sem_post( &tLock );
+    sem_post( &locks[index].editLock );
   }
   //file doesnt exist!
   else{
@@ -650,7 +827,9 @@ void exec_APPEND(int *clientSockID, char *file_name, int *bytes, char *file_cont
     fflush(NULL);
     if( sendLength != strlen(msg)){
         perror( "send() failed");
+        return;
     }
+    printf("[thread %u] SENT: %s", (unsigned int) pthread_self(),msg);
   }    
 
 }

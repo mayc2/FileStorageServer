@@ -38,19 +38,9 @@ THREAD SPECIFICS:
 		*listens on the given por number
 		*should do minimal work to ensure fast response times for new incoming connections
 
-CLARIFICATIONS:
-	-must be sychronized, at a minimum file-level sychronization
-		*any number of threads reading the same file (via READ command) at the same time
-		*first thread creates file (via ADD command), others give "ERROR: FILE EXISTS\n"
-		*when file is created (via ADD command), no other threads can access it
-		*during APPEND command, no other threads may be reading from file
-		*during APPEND command, no other threads can be appending to file
-		*A thread may execute the LIST command at any time (no sychronization)
-		*DELETE only when no other thread is accessing the file (all active reads and writes must complete first)
-		*Starvation must be avoided
 
 
-	File Storage Server Commands:
+File Storage Server Commands:
 
 	ADD <filename> <bytes>\n<file-contents>
 	-- add <filename> to the storage server
@@ -98,3 +88,43 @@ CLARIFICATIONS:
 	      ERROR: <error-description>\n
 
 	Expect the client to display the error description to the user.
+
+
+CLARIFICATIONS:
+
+(1) Your implementation must be properly synchronized.
+    More specifically, with multiple threads potentially
+    accessing the same files, synchronization is required.
+    At a minimum, implement file-level synchronization;
+    here are the requirements:
+
+    (a) There may be any number of threads reading
+        the same file (via the READ command) at the
+        same time
+
+    (b) If multiple threads attempt to create the
+        same file (via the ADD command), the first
+        one "wins" and creates the file, whereas
+        the other threads will not succeed
+        (with the "ERROR: FILE EXISTS\n" error)
+
+    (c) When a file is created (via the ADD command),
+        no other threads may access the file until the
+        ADD command has completed
+
+    (d) When a thread is writing to a file via an APPEND
+        command, no other threads may be reading from
+        the file
+
+    (e) When a thread is writing to a file via an APPEND
+        command, no other threads may be appending to
+        the file
+
+    (f) A thread may execute the LIST command at any
+        time (i.e. no synchronization is needed)
+    
+    (g) A thread may issue the DELETE command only when
+        no other threads are accessing the file (so all
+        "active" reads and writes must first complete)
+
+    (h) Starvation must be avoided
