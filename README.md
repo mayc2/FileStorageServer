@@ -127,4 +127,4 @@ CLARIFICATIONS:
         no other threads are accessing the file (so all
         "active" reads and writes must first complete)
 
-    (h) Starvation must be avoided
+    (h) Starvation will ideally be avoided
