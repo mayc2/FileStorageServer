@@ -1,2 +1,133 @@
 FileStorageServer
 =================
+
+Notes
+
+C PROGRAM IMPLEMENTING A FILE STORAGE SERVER:
+	-Multithreaded Server, using pthreads library
+	-each incoming connection to a dedicated thread
+		*either create threads on demand or manage a pool of available threads
+		*socket listens to 20 at a time
+	-support clients in any language
+
+
+struct sockaddr_in {
+	short int	     sin_family;  
+	unsigned short int   sin_port;	
+	struct in_addr	     sin_addr;	
+	unsigned char	     sin_zero[8];
+};
+
+APPLICATION-LEVEL PROTOCOL:
+	-text & binary files must be supported
+	-CLIENTS (connect to server)
+		*ADD
+		*DELETE
+		*APPEND
+		*READ
+		*LIST
+
+SERVER STORAGE SPECIFICS:
+	-store files in hidden directory .storage, program creates if necessary
+	-use mkdir() to create a directory
+		*use stat to confirm it doesn't exst first
+
+THREAD SPECIFICS:
+	-Allocate a thread for each client socket received and accepted
+	-each thread is responsible for communicating with the client via application level protocol 
+		*read()/write()
+		*recv()/send()
+	-main thread:
+		*listens on the given por number
+		*should do minimal work to ensure fast response times for new incoming connections
+
+
+
+File Storage Server Commands:
+
+	ADD <filename> <bytes>\n<file-contents>
+	-- add <filename> to the storage server
+	-- if the file already exists, return an "ERROR: FILE EXISTS\n" error
+	-- return "ACK" if successful
+	-- return "ERROR: <error-description>\n" if unsuccessful
+
+	APPEND <filename> <bytes>\n<file-contents>
+	-- append <filename> to the storage server by
+	    adding <file-contents> to the given file
+	-- if the file does not exist, return an "ERROR: NO SUCH FILE\n" error
+	-- return "ACK" if successful
+	-- return "ERROR: <error-description>\n" if unsuccessful
+
+	READ <filename>\n
+	-- server returns the length (in bytes) and content of <filename>
+	-- note that this does NOT remove the file on the server
+	-- if the file does not exist, return an "ERROR: NO SUCH FILE\n" error
+	-- return "ACK" if successful
+	-- return "ERROR: <error-description>\n" if unsuccessful
+	-- if "ACK" is sent, follow it with file length and file contents, as follows:
+
+	      ACK <bytes>\n<file-contents>
+
+	LIST\n
+	-- server returns the list of files currently stored on the server
+	-- the list need not be in any specific order
+	-- format of message containing list of files is as follows:
+
+	      <number-of-files>\n<filename1>\n<filename2>\netc.\n
+
+	-- if no files are stored, "0\n" is returned
+
+	DELETE <filename>\n
+	-- delete file <filename> from the storage server
+	-- if the file does not exist, return an "ERROR: NO SUCH FILE\n" error
+	-- return "ACK" if successful
+	-- return "ERROR: <error-description>\n" if unsuccessful
+
+
+
+	Note that errors sent by the server adhere to the following format,
+	 with error-description set accordingly:
+
+	      ERROR: <error-description>\n
+
+	Expect the client to display the error description to the user.
+
+
+CLARIFICATIONS:
+
+(1) Your implementation must be properly synchronized.
+    More specifically, with multiple threads potentially
+    accessing the same files, synchronization is required.
+    At a minimum, implement file-level synchronization;
+    here are the requirements:
+
+    (a) There may be any number of threads reading
+        the same file (via the READ command) at the
+        same time
+
+    (b) If multiple threads attempt to create the
+        same file (via the ADD command), the first
+        one "wins" and creates the file, whereas
+        the other threads will not succeed
+        (with the "ERROR: FILE EXISTS\n" error)
+
+    (c) When a file is created (via the ADD command),
+        no other threads may access the file until the
+        ADD command has completed
+
+    (d) When a thread is writing to a file via an APPEND
+        command, no other threads may be reading from
+        the file
+
+    (e) When a thread is writing to a file via an APPEND
+        command, no other threads may be appending to
+        the file
+
+    (f) A thread may execute the LIST command at any
+        time (i.e. no synchronization is needed)
+    
+    (g) A thread may issue the DELETE command only when
+        no other threads are accessing the file (so all
+        "active" reads and writes must first complete)
+
+    (h) Starvation must be avoided
