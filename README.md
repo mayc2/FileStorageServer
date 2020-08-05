@@ -95,12 +95,9 @@ File Storage Server Commands:
 
 CLARIFICATIONS:
 
-(1) Your implementation must be properly synchronized.
-    More specifically, with multiple threads potentially
+(1) Synchronized. with multiple threads potentially
     accessing the same files, synchronization is required.
-    At a minimum, implement file-level synchronization;
-    here are the requirements:
-
+    
     (a) There may be any number of threads reading
         the same file (via the READ command) at the
         same time
